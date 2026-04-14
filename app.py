@@ -6,6 +6,7 @@ Guides customers through authentication, project scoping, data analysis,
 historical project matching, and scope document generation.
 """
 
+import os
 import streamlit as st
 
 # Must be the first Streamlit command
@@ -90,6 +91,30 @@ with st.sidebar:
         st.markdown(f"**Clearance:** {st.session_state.clearance_level}")
     else:
         st.caption("Not yet authenticated.")
+
+    st.divider()
+
+    # AI Configuration
+    st.markdown("## AI Assistant")
+    env_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if env_key:
+        st.markdown("API key configured via environment.")
+    else:
+        api_key = st.text_input(
+            "Anthropic API Key",
+            value=st.session_state.api_key,
+            type="password",
+            placeholder="sk-ant-...",
+            help="Required for AI-assisted requirements and scope generation.",
+        )
+        if api_key != st.session_state.api_key:
+            st.session_state.api_key = api_key
+
+    from utils.claude_client import is_configured
+    if is_configured():
+        st.markdown('<span style="color:#2e8540;">● AI Ready</span>', unsafe_allow_html=True)
+    else:
+        st.caption("Enter an API key to enable AI features.")
 
     st.divider()
     st.caption(

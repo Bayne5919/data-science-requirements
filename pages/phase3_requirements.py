@@ -2,6 +2,7 @@
 
 import streamlit as st
 from utils.state import advance_phase
+from utils.claude_client import is_configured, chat_requirements
 
 
 def render():
@@ -146,6 +147,51 @@ def render():
     )
 
     st.session_state.requirements = reqs
+
+    st.divider()
+
+    # ── AI Requirements Assistant ──
+    st.subheader("AI Requirements Assistant")
+    if is_configured():
+        st.markdown(
+            '<div class="gov-alert-info">'
+            "Ask the AI assistant for help articulating your requirements. "
+            "It can suggest success criteria, identify gaps, and help you "
+            "refine your problem statement."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        # Display chat history
+        for msg in st.session_state.ai_chat_history:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+
+        # Chat input
+        if user_input := st.chat_input("Ask for help with your requirements..."):
+            st.session_state.ai_chat_history.append(
+                {"role": "user", "content": user_input}
+            )
+            with st.chat_message("user"):
+                st.markdown(user_input)
+
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    try:
+                        response = chat_requirements(
+                            st.session_state.ai_chat_history
+                        )
+                        st.markdown(response)
+                        st.session_state.ai_chat_history.append(
+                            {"role": "assistant", "content": response}
+                        )
+                    except Exception as e:
+                        st.error(f"AI error: {e}")
+    else:
+        st.info(
+            "Configure an Anthropic API key in the sidebar to enable "
+            "the AI requirements assistant."
+        )
 
     st.divider()
 

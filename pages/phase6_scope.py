@@ -2,6 +2,7 @@
 
 import streamlit as st
 from datetime import date
+from utils.claude_client import is_configured, generate_scope_section
 
 
 def render():
@@ -22,13 +23,33 @@ def render():
 
     # ── 1. Project Title & Summary ──
     st.subheader("1. Project Title & Summary")
+    if is_configured():
+        if st.button("Generate Title & Summary with AI", key="ai_title"):
+            with st.spinner("Generating..."):
+                try:
+                    result = generate_scope_section("title_summary")
+                    for line in result.split("\n"):
+                        line = line.strip()
+                        if line.lower().startswith("title:"):
+                            st.session_state.ai_project_title = line.split(":", 1)[1].strip()
+                        elif line.lower().startswith("summary:"):
+                            st.session_state.ai_project_summary = line.split(":", 1)[1].strip()
+                    if not st.session_state.ai_project_title:
+                        st.session_state.ai_project_title = result.split("\n")[0]
+                    if not st.session_state.ai_project_summary:
+                        st.session_state.ai_project_summary = result
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"AI error: {e}")
+
     project_title = st.text_input(
         "Project title",
-        value="",
+        value=st.session_state.ai_project_title,
         placeholder="e.g., Automated Document Triage System",
     )
     project_summary = st.text_area(
         "Executive summary",
+        value=st.session_state.ai_project_summary,
         height=80,
         placeholder="A brief 2-3 sentence summary of the project...",
     )
@@ -50,8 +71,18 @@ def render():
     else:
         st.markdown("**Project Type(s):** *Not selected*")
 
+    if is_configured():
+        if st.button("Generate Methodology with AI", key="ai_method"):
+            with st.spinner("Generating..."):
+                try:
+                    st.session_state.ai_methodology = generate_scope_section("methodology")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"AI error: {e}")
+
     methodology = st.text_area(
         "Methodology notes (optional)",
+        value=st.session_state.ai_methodology,
         height=80,
         placeholder="e.g., Iterative development with bi-weekly stakeholder reviews; "
         "start with baseline model, then refine...",
@@ -138,16 +169,27 @@ def render():
         unsafe_allow_html=True,
     )
 
-    # TODO: Implement smart timeline estimation based on project type, complexity, and reference
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Discovery & Planning", "2–3 weeks")
-    with col2:
-        st.metric("Development & Testing", "8–12 weeks")
-    with col3:
-        st.metric("Deployment & Handoff", "2–4 weeks")
+    if is_configured():
+        if st.button("Generate Timeline with AI", key="ai_timeline"):
+            with st.spinner("Generating..."):
+                try:
+                    st.session_state.ai_timeline = generate_scope_section("timeline")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"AI error: {e}")
 
-    st.caption("Total estimated range: **12–19 weeks** (placeholder — will be refined)")
+    if st.session_state.ai_timeline:
+        st.markdown(st.session_state.ai_timeline)
+    else:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Discovery & Planning", "2–3 weeks")
+        with col2:
+            st.metric("Development & Testing", "8–12 weeks")
+        with col3:
+            st.metric("Deployment & Handoff", "2–4 weeks")
+
+        st.caption("Total estimated range: **12–19 weeks** (placeholder — click Generate above for AI estimate)")
 
     st.divider()
 

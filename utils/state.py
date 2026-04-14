@@ -54,6 +54,14 @@ def init_session_state():
         "match_feedback": "",
         # Phase 6: Scope
         "scope_document": None,
+        # AI Configuration
+        "api_key": "",
+        "ai_chat_history": [],
+        # AI-generated scope fields
+        "ai_project_title": "",
+        "ai_project_summary": "",
+        "ai_methodology": "",
+        "ai_timeline": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
