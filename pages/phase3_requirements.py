@@ -57,10 +57,18 @@ def render():
             options=["", "Yes — ready to share", "Yes — but needs preparation", "No — need to identify sources", "Unsure"],
             index=["", "Yes — ready to share", "Yes — but needs preparation", "No — need to identify sources", "Unsure"].index(reqs["data_availability"]) if reqs["data_availability"] else 0,
         )
+        # Restrict classification options to user's clearance level and below
+        all_levels = ["Unclassified", "CUI", "Secret", "Top Secret"]
+        user_clearance = st.session_state.clearance_level or ""
+        if user_clearance in all_levels:
+            max_idx = all_levels.index(user_clearance)
+            allowed_levels = [""] + all_levels[: max_idx + 1]
+        else:
+            allowed_levels = [""] + all_levels
         reqs["data_classification"] = st.selectbox(
             "Data classification level",
-            options=["", "Unclassified", "CUI", "Secret", "Top Secret"],
-            index=["", "Unclassified", "CUI", "Secret", "Top Secret"].index(reqs["data_classification"]) if reqs["data_classification"] else 0,
+            options=allowed_levels,
+            index=allowed_levels.index(reqs["data_classification"]) if reqs["data_classification"] in allowed_levels else 0,
         )
     with col2:
         reqs["data_volume"] = st.text_input(
