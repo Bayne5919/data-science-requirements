@@ -3,6 +3,15 @@
 import streamlit as st
 from utils.state import advance_phase
 
+# Classification hierarchy (index = rank; higher index = higher clearance)
+CLASSIFICATION_RANKS = {
+    "Unclassified": 0,
+    "CUI": 1,
+    "Secret": 2,
+    "Top Secret": 3,
+    "TS/SCI": 4,
+}
+
 # Placeholder historical projects for demonstration
 SAMPLE_MATCHES = [
     {
@@ -10,6 +19,7 @@ SAMPLE_MATCHES = [
         "title": "Document Classification Pipeline — Agency X",
         "status": "Completed",
         "similarity": 87,
+        "classification": "Unclassified",
         "summary": "Built a multi-label classification model to categorize incoming "
         "correspondence by topic and urgency for a federal agency's intake office.",
         "tech_stack": "Python, scikit-learn, FastAPI, PostgreSQL",
@@ -20,6 +30,7 @@ SAMPLE_MATCHES = [
         "title": "NLP-Powered Policy Search — Agency Y",
         "status": "Completed",
         "similarity": 72,
+        "classification": "CUI",
         "summary": "Developed a retrieval-augmented generation (RAG) system for searching "
         "and summarizing internal policy documents using an LLM.",
         "tech_stack": "Python, LangChain, OpenAI API, Elasticsearch",
@@ -30,12 +41,23 @@ SAMPLE_MATCHES = [
         "title": "Attrition Forecasting Model — Agency Z",
         "status": "In Progress",
         "similarity": 54,
+        "classification": "Secret",
         "summary": "Time series forecasting model to predict personnel attrition rates "
         "by directorate, enabling proactive recruitment planning.",
         "tech_stack": "Python, Prophet, Streamlit, Snowflake",
         "duration": "10 weeks (estimated)",
     },
 ]
+
+
+def _filter_by_clearance(matches: list[dict]) -> list[dict]:
+    """Return only projects at or below the user's clearance level."""
+    user_clearance = st.session_state.get("clearance_level", "")
+    max_rank = CLASSIFICATION_RANKS.get(user_clearance, -1)
+    return [
+        m for m in matches
+        if CLASSIFICATION_RANKS.get(m.get("classification", "Unclassified"), 0) <= max_rank
+    ]
 
 
 def render():
@@ -66,7 +88,7 @@ def render():
         with st.spinner("Searching historical projects..."):
             import time
             time.sleep(1)  # Simulate search delay
-            st.session_state.jira_matches = SAMPLE_MATCHES
+            st.session_state.jira_matches = _filter_by_clearance(SAMPLE_MATCHES)
 
     # --- Display Matches ---
     if st.session_state.jira_matches:
@@ -80,7 +102,7 @@ def render():
                 with col2:
                     st.metric("Similarity", f"{match['similarity']}%")
 
-                st.caption(f"Status: {match['status']}  |  Duration: {match['duration']}  |  Stack: {match['tech_stack']}")
+                st.caption(f"Status: {match['status']}  |  Classification: {match.get('classification', 'Unclassified')}  |  Duration: {match['duration']}  |  Stack: {match['tech_stack']}")
                 st.markdown(match["summary"])
 
                 if st.button(f"Select this as reference", key=f"select_match_{i}"):

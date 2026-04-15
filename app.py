@@ -92,6 +92,43 @@ with st.sidebar:
         st.caption("Not yet authenticated.")
 
     st.divider()
+
+    # AI / Ollama Configuration
+    st.markdown("## AI Assistant")
+    from utils.llm_client import get_available_models, is_configured
+
+    ollama_url = st.text_input(
+        "Ollama URL",
+        value=st.session_state.ollama_url,
+        placeholder="http://localhost:11434",
+        help="Address of your local Ollama instance.",
+    )
+    if ollama_url != st.session_state.ollama_url:
+        st.session_state.ollama_url = ollama_url
+
+    models = get_available_models()
+    if models:
+        current_model = st.session_state.ollama_model
+        idx = models.index(current_model) if current_model in models else 0
+        selected_model = st.selectbox("Model", options=models, index=idx)
+        if selected_model != st.session_state.ollama_model:
+            st.session_state.ollama_model = selected_model
+    else:
+        st.session_state.ollama_model = ""
+        st.caption("No models found. Is Ollama running?")
+
+    if is_configured():
+        st.markdown(
+            '<span style="color:#2e8540;">● Connected</span>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<span style="color:#e5a000;">● Not connected</span>',
+            unsafe_allow_html=True,
+        )
+
+    st.divider()
     st.caption(
         "Data Science Requirements Gathering Tool v0.1.0\n\n"
         "For official use only."
