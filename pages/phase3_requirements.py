@@ -1,188 +1,134 @@
-"""Phase 3: Requirements Elicitation."""
+"""Phase 3: Requirements Elicitation — Conversational AI Interface."""
 
 import streamlit as st
 from utils.state import advance_phase
-from utils.claude_client import is_configured, chat_requirements
+from utils.llm_client import is_configured, chat_requirements, extract_requirements_from_chat
+
+
+OPENING_MESSAGE = (
+    "Hi! I'm here to help define your data science project requirements. "
+    "Let's start with the big picture — **what problem are you trying to solve, "
+    "and what decision or outcome will this project support?**"
+)
+
+# All trackable requirement fields with display labels
+FIELD_LABELS = {
+    "business_problem": "Business Problem",
+    "end_users": "End Users",
+    "success_criteria": "Success Criteria",
+    "data_availability": "Data Availability",
+    "data_classification": "Data Classification",
+    "data_volume": "Data Volume",
+    "constraints_deadline": "Deadline",
+    "constraints_compliance": "Compliance",
+    "hosting_environment": "Hosting",
+    "integration_needs": "Integration",
+    "delivery_format": "Delivery Format",
+    "stakeholders_approver": "Approver",
+    "stakeholders_users": "Users",
+    "stakeholders_maintainer": "Maintainer",
+    "priority_level": "Priority",
+}
+
+
+def _field_has_value(val) -> bool:
+    """Check if a requirements field has a meaningful value."""
+    if isinstance(val, list):
+        return len(val) > 0
+    if isinstance(val, str):
+        return bool(val.strip())
+    return bool(val)
+
+
+def _count_filled(reqs: dict) -> tuple[int, int]:
+    """Count how many total trackable fields are filled."""
+    filled = sum(1 for key in FIELD_LABELS if _field_has_value(reqs.get(key, "")))
+    return filled, len(FIELD_LABELS)
+
+
+def _merge_extracted(reqs: dict, extracted: dict) -> dict:
+    """Merge extracted values into requirements, only overwriting empty fields
+    or updating with non-empty values."""
+    for key, val in extracted.items():
+        if key in reqs and val:
+            # For list fields, don't overwrite with empty
+            if isinstance(val, list) and not val:
+                continue
+            if isinstance(val, str) and not val.strip():
+                continue
+            reqs[key] = val
+    return reqs
 
 
 def render():
-    """Render the requirements elicitation phase."""
+    """Render the conversational requirements elicitation phase."""
+    reqs = st.session_state.requirements
+    filled, total = _count_filled(reqs)
+
     st.markdown(
         '<div class="gov-card">'
         "<h3>Phase 3 — Requirements Elicitation</h3>"
-        "<p>Help us understand your project needs in detail. Complete as many fields "
-        "as you can — you can always come back and update them later. Fields marked "
-        "with <strong>*</strong> are required to generate a scope document.</p>"
+        "<p>Have a conversation with the AI assistant about your project. "
+        "Requirements are automatically extracted after each response.</p>"
         "</div>",
         unsafe_allow_html=True,
     )
 
-    reqs = st.session_state.requirements
-
-    # ── Section 1: Business Problem ──
-    st.subheader("Business Problem & Objectives")
-    reqs["business_problem"] = st.text_area(
-        "What decision or outcome is this project supporting? *",
-        value=reqs["business_problem"],
-        height=100,
-        placeholder="e.g., Leadership needs a faster way to identify high-risk applications "
-        "before they reach the review board...",
-    )
-    reqs["end_users"] = st.text_input(
-        "Who are the primary end users? *",
-        value=reqs["end_users"],
-        placeholder="e.g., Program analysts in the Office of Risk Management",
-    )
-
-    st.divider()
-
-    # ── Section 2: Success Criteria ──
-    st.subheader("Success Criteria")
-    reqs["success_criteria"] = st.text_area(
-        "How will you know this project succeeded? What metrics matter? *",
-        value=reqs["success_criteria"],
-        height=100,
-        placeholder="e.g., Reduce average document triage time from 4 hours to under 30 minutes; "
-        "achieve at least 90% accuracy on classification...",
-    )
-
-    st.divider()
-
-    # ── Section 3: Data Availability ──
-    st.subheader("Data Availability")
-    col1, col2 = st.columns(2)
-    with col1:
-        reqs["data_availability"] = st.selectbox(
-            "Do you currently have data available?",
-            options=["", "Yes — ready to share", "Yes — but needs preparation", "No — need to identify sources", "Unsure"],
-            index=["", "Yes — ready to share", "Yes — but needs preparation", "No — need to identify sources", "Unsure"].index(reqs["data_availability"]) if reqs["data_availability"] else 0,
+    if not is_configured():
+        st.warning(
+            "Connect to Ollama in the sidebar to use the AI requirements assistant. "
+            "Select a model and ensure Ollama is running."
         )
-        # Restrict classification options to user's clearance level and below
-        all_levels = ["Unclassified", "CUI", "Secret", "Top Secret"]
-        user_clearance = st.session_state.clearance_level or ""
-        if user_clearance in all_levels:
-            max_idx = all_levels.index(user_clearance)
-            allowed_levels = [""] + all_levels[: max_idx + 1]
-        else:
-            allowed_levels = [""] + all_levels
-        reqs["data_classification"] = st.selectbox(
-            "Data classification level",
-            options=allowed_levels,
-            index=allowed_levels.index(reqs["data_classification"]) if reqs["data_classification"] in allowed_levels else 0,
-        )
-    with col2:
-        reqs["data_volume"] = st.text_input(
-            "Approximate data volume",
-            value=reqs["data_volume"],
-            placeholder="e.g., ~50,000 records, 2 GB of PDFs",
-        )
+        _render_manual_fallback()
+        return
 
-    st.divider()
+    # --- Layout: chat on left, requirements tracker on right ---
+    chat_col, tracker_col = st.columns([3, 1])
 
-    # ── Section 4: Constraints ──
-    st.subheader("Constraints & Compliance")
-    col1, col2 = st.columns(2)
-    with col1:
-        reqs["constraints_deadline"] = st.text_input(
-            "Target deadline or milestone",
-            value=reqs["constraints_deadline"],
-            placeholder="e.g., Need initial results by Q3 FY2026",
-        )
-        reqs["hosting_environment"] = st.selectbox(
-            "Hosting environment",
-            options=["", "Cloud (FedRAMP authorized)", "On-premises", "Air-gapped", "Hybrid", "Unsure"],
-            index=["", "Cloud (FedRAMP authorized)", "On-premises", "Air-gapped", "Hybrid", "Unsure"].index(reqs["hosting_environment"]) if reqs["hosting_environment"] else 0,
-        )
-    with col2:
-        compliance_options = ["FedRAMP", "FISMA", "ATO Required", "HIPAA", "ITAR", "Section 508"]
-        reqs["constraints_compliance"] = st.multiselect(
-            "Applicable compliance frameworks",
-            options=compliance_options,
-            default=reqs["constraints_compliance"],
-        )
+    with tracker_col:
+        st.markdown("#### 📋 Requirements")
+        st.caption(f"**{filled} / {total}** captured")
 
-    st.divider()
+        # Progress bar
+        st.progress(filled / total if total > 0 else 0)
 
-    # ── Section 5: Integration & Delivery ──
-    st.subheader("Integration & Delivery")
-    col1, col2 = st.columns(2)
-    with col1:
-        reqs["integration_needs"] = st.text_input(
-            "Systems this must connect to",
-            value=reqs["integration_needs"],
-            placeholder="e.g., ServiceNow, agency data warehouse, Tableau",
-        )
-    with col2:
-        reqs["delivery_format"] = st.selectbox(
-            "Preferred delivery format",
-            options=["", "Interactive dashboard", "REST API", "Periodic report", "Embedded model", "Standalone application", "Multiple / Other"],
-            index=["", "Interactive dashboard", "REST API", "Periodic report", "Embedded model", "Standalone application", "Multiple / Other"].index(reqs["delivery_format"]) if reqs["delivery_format"] else 0,
-        )
+        # Field status list
+        for key, label in FIELD_LABELS.items():
+            val = reqs.get(key, "")
+            has_val = _field_has_value(val)
+            icon = "✅" if has_val else "⬜"
+            if has_val:
+                display_val = ", ".join(val) if isinstance(val, list) else val
+                # Truncate long values for the sidebar
+                if len(display_val) > 60:
+                    display_val = display_val[:57] + "..."
+                st.markdown(f"{icon} **{label}**")
+                st.caption(display_val)
+            else:
+                st.markdown(f"{icon} {label}")
 
-    st.divider()
+    with chat_col:
+        # --- Seed the conversation with an opening message ---
+        if not st.session_state.ai_chat_history:
+            st.session_state.ai_chat_history.append(
+                {"role": "assistant", "content": OPENING_MESSAGE}
+            )
 
-    # ── Section 6: Stakeholders ──
-    st.subheader("Stakeholders")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        reqs["stakeholders_approver"] = st.text_input(
-            "Approving authority",
-            value=reqs["stakeholders_approver"],
-            placeholder="Name / title",
-        )
-    with col2:
-        reqs["stakeholders_users"] = st.text_input(
-            "Primary users",
-            value=reqs["stakeholders_users"],
-            placeholder="Team / role",
-        )
-    with col3:
-        reqs["stakeholders_maintainer"] = st.text_input(
-            "Long-term maintainer",
-            value=reqs["stakeholders_maintainer"],
-            placeholder="Team / role",
-        )
-
-    st.divider()
-
-    # ── Section 7: Priority ──
-    st.subheader("Priority Level")
-    reqs["priority_level"] = st.radio(
-        "How would you characterize this initiative?",
-        options=["Mission-critical", "Operational improvement", "Exploratory / R&D"],
-        index=["Mission-critical", "Operational improvement", "Exploratory / R&D"].index(reqs["priority_level"]) if reqs["priority_level"] else 1,
-        horizontal=True,
-    )
-
-    st.session_state.requirements = reqs
-
-    st.divider()
-
-    # ── AI Requirements Assistant ──
-    st.subheader("AI Requirements Assistant")
-    if is_configured():
-        st.markdown(
-            '<div class="gov-alert-info">'
-            "Ask the AI assistant for help articulating your requirements. "
-            "It can suggest success criteria, identify gaps, and help you "
-            "refine your problem statement."
-            "</div>",
-            unsafe_allow_html=True,
-        )
-
-        # Display chat history
+        # --- Chat display ---
         for msg in st.session_state.ai_chat_history:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-        # Chat input
-        if user_input := st.chat_input("Ask for help with your requirements..."):
+        # --- Chat input ---
+        if user_input := st.chat_input("Tell me about your project..."):
+            # Add user message
             st.session_state.ai_chat_history.append(
                 {"role": "user", "content": user_input}
             )
             with st.chat_message("user"):
                 st.markdown(user_input)
 
+            # Get AI response
             with st.chat_message("assistant"):
                 with st.spinner("Thinking..."):
                     try:
@@ -194,30 +140,102 @@ def render():
                             {"role": "assistant", "content": response}
                         )
                     except Exception as e:
-                        st.error(f"AI error: {e}")
-    else:
-        st.info(
-            "Configure an Anthropic API key in the sidebar to enable "
-            "the AI requirements assistant."
-        )
+                        st.error(f"Error communicating with Ollama: {e}")
+
+            # --- Auto-extract after every user message ---
+            with st.spinner("Extracting requirements..."):
+                try:
+                    extracted = extract_requirements_from_chat(
+                        st.session_state.ai_chat_history
+                    )
+                    if extracted:
+                        st.session_state.requirements = _merge_extracted(reqs, extracted)
+                except Exception:
+                    pass  # Extraction failed silently — user can keep chatting
+
+            st.rerun()  # Refresh to update the tracker panel
 
     st.divider()
 
-    # ── Completeness Check ──
-    required_fields = ["business_problem", "end_users", "success_criteria"]
-    filled = sum(1 for f in required_fields if reqs[f].strip())
-    total = len(required_fields)
+    # --- Completeness status and navigation ---
+    # Re-count after potential extraction
+    filled, total = _count_filled(st.session_state.requirements)
 
     if filled < total:
+        missing = [
+            label for key, label in FIELD_LABELS.items()
+            if not _field_has_value(st.session_state.requirements.get(key, ""))
+        ]
         st.markdown(
             f'<div class="gov-alert-warning">'
-            f"<strong>{filled}/{total} required fields completed.</strong> "
-            f"Please fill in the remaining required fields (marked with *) to continue."
+            f"<strong>{filled}/{total} requirements captured.</strong> "
+            f"Still needed: {', '.join(missing[:5])}"
+            f"{'...' if len(missing) > 5 else ''}"
             f"</div>",
             unsafe_allow_html=True,
         )
+    else:
+        st.markdown(
+            '<div class="gov-alert-success">'
+            "<strong>All requirements captured!</strong> "
+            "Review the extracted fields in the panel on the right, then proceed."
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
-    can_proceed = filled == total
+    # Show proceed button — always visible but styled differently based on completeness
+    if filled == total:
+        if st.button(
+            "✅ All Requirements Captured — Proceed to Data Analysis",
+            use_container_width=True,
+            type="primary",
+        ):
+            advance_phase()
+            st.rerun()
+    else:
+        if st.button(
+            f"Proceed to Data Analysis ({filled}/{total} captured)",
+            use_container_width=True,
+            help="You can proceed at any time, but some fields are still missing.",
+        ):
+            advance_phase()
+            st.rerun()
+
+
+def _render_manual_fallback():
+    """Render a minimal manual form when Ollama is not available."""
+    st.divider()
+    st.markdown(
+        '<div class="gov-alert-info">'
+        "Ollama is not connected. You can fill in the core requirements manually below."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    reqs = st.session_state.requirements
+
+    reqs["business_problem"] = st.text_area(
+        "What decision or outcome is this project supporting? *",
+        value=reqs["business_problem"],
+        height=100,
+    )
+    reqs["end_users"] = st.text_input(
+        "Who are the primary end users? *",
+        value=reqs["end_users"],
+    )
+    reqs["success_criteria"] = st.text_area(
+        "How will you know this project succeeded? *",
+        value=reqs["success_criteria"],
+        height=100,
+    )
+
+    st.session_state.requirements = reqs
+
+    st.divider()
+
+    required = ["business_problem", "end_users", "success_criteria"]
+    filled = sum(1 for f in required if reqs.get(f, "").strip())
+    can_proceed = filled == len(required)
     if st.button("Continue to Data Analysis", disabled=not can_proceed, use_container_width=True):
         advance_phase()
         st.rerun()

@@ -54,8 +54,9 @@ def init_session_state():
         "match_feedback": "",
         # Phase 6: Scope
         "scope_document": None,
-        # AI Configuration
-        "api_key": "",
+        # AI / Ollama Configuration
+        "ollama_url": "http://localhost:11434",
+        "ollama_model": "",
         "ai_chat_history": [],
         # AI-generated scope fields
         "ai_project_title": "",

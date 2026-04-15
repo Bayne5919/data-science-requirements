@@ -6,7 +6,6 @@ Guides customers through authentication, project scoping, data analysis,
 historical project matching, and scope document generation.
 """
 
-import os
 import streamlit as st
 
 # Must be the first Streamlit command
@@ -94,27 +93,40 @@ with st.sidebar:
 
     st.divider()
 
-    # AI Configuration
+    # AI / Ollama Configuration
     st.markdown("## AI Assistant")
-    env_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if env_key:
-        st.markdown("API key configured via environment.")
-    else:
-        api_key = st.text_input(
-            "Anthropic API Key",
-            value=st.session_state.api_key,
-            type="password",
-            placeholder="sk-ant-...",
-            help="Required for AI-assisted requirements and scope generation.",
-        )
-        if api_key != st.session_state.api_key:
-            st.session_state.api_key = api_key
+    from utils.llm_client import get_available_models, is_configured
 
-    from utils.claude_client import is_configured
-    if is_configured():
-        st.markdown('<span style="color:#2e8540;">● AI Ready</span>', unsafe_allow_html=True)
+    ollama_url = st.text_input(
+        "Ollama URL",
+        value=st.session_state.ollama_url,
+        placeholder="http://localhost:11434",
+        help="Address of your local Ollama instance.",
+    )
+    if ollama_url != st.session_state.ollama_url:
+        st.session_state.ollama_url = ollama_url
+
+    models = get_available_models()
+    if models:
+        current_model = st.session_state.ollama_model
+        idx = models.index(current_model) if current_model in models else 0
+        selected_model = st.selectbox("Model", options=models, index=idx)
+        if selected_model != st.session_state.ollama_model:
+            st.session_state.ollama_model = selected_model
     else:
-        st.caption("Enter an API key to enable AI features.")
+        st.session_state.ollama_model = ""
+        st.caption("No models found. Is Ollama running?")
+
+    if is_configured():
+        st.markdown(
+            '<span style="color:#2e8540;">● Connected</span>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<span style="color:#e5a000;">● Not connected</span>',
+            unsafe_allow_html=True,
+        )
 
     st.divider()
     st.caption(

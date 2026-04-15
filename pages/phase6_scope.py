@@ -2,7 +2,7 @@
 
 import streamlit as st
 from datetime import date
-from utils.claude_client import is_configured, generate_scope_section
+from utils.llm_client import is_configured, generate_scope_section
 
 
 def render():
